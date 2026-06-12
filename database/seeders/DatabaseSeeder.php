@@ -20,6 +20,8 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        $this->call(ExampleEntitySeeder::class);
+
         foreach (['Comercial', 'Apoio Tecnico', 'Recursos Humanos'] as $inbox) {
             Inbox::firstOrCreate(
                 ['slug' => Str::slug($inbox)],
@@ -65,5 +67,8 @@ class DatabaseSeeder extends Seeder
             'password' => 'password',
             'role' => 'client',
         ]);
+
+        $this->call(ExampleContactSeeder::class);
+        $this->call(ExampleTicketSeeder::class);
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Entity;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -11,7 +12,16 @@ class EntityController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
+
+        abort_if(! $user, 401, 'Utilizador nao autenticado.');
+
         $query = Entity::query()->with('contacts');
+
+        if (! $user->isOperator()) {
+            abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
+            $query->where('id', (int) $user->entity_id);
+        }
 
         if ($request->filled('search')) {
             $search = $request->string('search');
@@ -27,6 +37,8 @@ class EntityController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $this->ensureOperator($request->user());
+
         $data = $request->validate([
             'nif' => ['required', 'string', 'max:32', 'unique:entities,nif'],
             'name' => ['required', 'string', 'max:255'],
@@ -44,11 +56,15 @@ class EntityController extends Controller
 
     public function show(Entity $entity): JsonResponse
     {
+        $this->ensureCanAccessEntity($entity, request()->user());
+
         return response()->json($entity->load('contacts'));
     }
 
     public function update(Request $request, Entity $entity): JsonResponse
     {
+        $this->ensureOperator($request->user());
+
         $data = $request->validate([
             'nif' => ['required', 'string', 'max:32', 'unique:entities,nif,'.$entity->id],
             'name' => ['required', 'string', 'max:255'],
@@ -62,5 +78,23 @@ class EntityController extends Controller
         $entity->update($data);
 
         return response()->json($entity);
+    }
+
+    private function ensureOperator(?User $user): void
+    {
+        abort_if(! $user, 401, 'Utilizador nao autenticado.');
+        abort_if(! $user->isOperator(), 403, 'Apenas operadores podem executar esta operacao.');
+    }
+
+    private function ensureCanAccessEntity(Entity $entity, ?User $user): void
+    {
+        abort_if(! $user, 401, 'Utilizador nao autenticado.');
+
+        if ($user->isOperator()) {
+            return;
+        }
+
+        abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
+        abort_if((int) $entity->id !== (int) $user->entity_id, 403, 'Sem permissao para esta entidade.');
     }
 }

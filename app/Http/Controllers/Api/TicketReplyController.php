@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Contact;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
 use App\Models\TicketReply;
+use App\Models\User;
 use App\Notifications\TicketReplyNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,18 +19,28 @@ class TicketReplyController extends Controller
 {
     public function store(Request $request, Ticket $ticket): JsonResponse
     {
+        $user = $request->user();
+
+        abort_if(! $user, 401, 'Utilizador nao autenticado.');
+        $this->ensureCanAccessTicket($ticket, $user);
+
         $data = $request->validate([
             'message' => ['required', 'string'],
-            'author_type' => ['required', 'in:operator,client'],
             'author_contact_id' => ['nullable', 'exists:contacts,id'],
             'attachments' => ['nullable', 'array'],
             'attachments.*' => ['file', 'max:10240'],
         ]);
 
-        $reply = DB::transaction(function () use ($request, $ticket, $data) {
+        if (! empty($data['author_contact_id'])) {
+            $this->ensureContactBelongsToEntity((int) $data['author_contact_id'], (int) $ticket->entity_id);
+        }
+
+        $authorType = $user->isOperator() ? 'operator' : 'client';
+
+        $reply = DB::transaction(function () use ($request, $ticket, $data, $authorType) {
             $reply = TicketReply::create([
                 'ticket_id' => $ticket->id,
-                'author_type' => $data['author_type'],
+            'author_type' => $authorType,
                 'author_user_id' => $request->user()?->id,
                 'author_contact_id' => $data['author_contact_id'] ?? null,
                 'message' => $data['message'],
@@ -53,7 +65,7 @@ class TicketReplyController extends Controller
                 'description' => 'Nova resposta no ticket',
                 'meta' => [
                     'reply_id' => $reply->id,
-                    'author_type' => $data['author_type'],
+                    'author_type' => $authorType,
                 ],
             ]);
 
@@ -67,7 +79,7 @@ class TicketReplyController extends Controller
 
     private function notifyReply(Ticket $ticket, TicketReply $reply): void
     {
-        $ticket->loadMissing(['cc', 'creatorContact', 'creatorUser']);
+        $ticket->loadMissing(['cc', 'creatorContact', 'creatorUser', 'assignedOperator']);
 
         $emails = collect($ticket->cc->pluck('email'));
 
@@ -79,11 +91,38 @@ class TicketReplyController extends Controller
             $emails->push($ticket->creatorUser->email);
         }
 
+        if ($ticket->assignedOperator?->email) {
+            $emails->push($ticket->assignedOperator->email);
+        }
+
         $emails = $emails->filter()->unique()->values();
 
         if ($emails->isNotEmpty()) {
             Notification::route('mail', $emails->all())
                 ->notify(new TicketReplyNotification($ticket, $reply));
         }
+    }
+
+    private function ensureCanAccessTicket(Ticket $ticket, User $user): void
+    {
+        if ($user->isOperator()) {
+            $hasInboxAccess = $user->inboxes()->where('inboxes.id', $ticket->inbox_id)->exists();
+            abort_if(! $hasInboxAccess, 403, 'Operador sem permissao para esta inbox.');
+
+            return;
+        }
+
+        abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
+        abort_if((int) $ticket->entity_id !== (int) $user->entity_id, 403, 'Sem permissao para este ticket.');
+    }
+
+    private function ensureContactBelongsToEntity(int $contactId, int $entityId): void
+    {
+        $isValid = Contact::query()
+            ->whereKey($contactId)
+            ->whereHas('entities', fn ($q) => $q->where('entities.id', $entityId))
+            ->exists();
+
+        abort_if(! $isValid, 422, 'O contacto informado nao pertence a entidade do ticket.');
     }
 }

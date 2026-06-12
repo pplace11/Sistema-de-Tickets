@@ -4,8 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Contact;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
+use App\Models\User;
+use App\Notifications\TicketAssignedNotification;
 use App\Notifications\TicketCreatedNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +19,10 @@ class TicketController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $user = $request->user();
+
+        abort_if(! $user, 401, 'Utilizador nao autenticado.');
+
         $query = Ticket::query()->with([
             'inbox',
             'type',
@@ -25,6 +32,14 @@ class TicketController extends Controller
             'creatorContact',
             'cc',
         ]);
+
+        if ($user->isOperator()) {
+            $allowedInboxIds = $user->inboxes()->pluck('inboxes.id');
+            $query->whereIn('inbox_id', $allowedInboxIds);
+        } else {
+            abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
+            $query->where('entity_id', (int) $user->entity_id);
+        }
 
         if ($request->filled('inbox_id')) {
             $query->where('inbox_id', (int) $request->input('inbox_id'));
@@ -43,7 +58,13 @@ class TicketController extends Controller
         }
 
         if ($request->filled('entity_id')) {
-            $query->where('entity_id', (int) $request->input('entity_id'));
+            $requestedEntityId = (int) $request->input('entity_id');
+
+            if (! $user->isOperator() && $requestedEntityId !== (int) $user->entity_id) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->where('entity_id', $requestedEntityId);
+            }
         }
 
         if ($request->filled('search')) {
@@ -61,6 +82,11 @@ class TicketController extends Controller
 
     public function show(Ticket $ticket): JsonResponse
     {
+        $user = request()->user();
+
+        abort_if(! $user, 401, 'Utilizador nao autenticado.');
+        $this->ensureCanAccessTicket($ticket, $user);
+
         return response()->json(
             $ticket->load([
                 'inbox',
@@ -82,6 +108,10 @@ class TicketController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $user = $request->user();
+
+        abort_if(! $user, 401, 'Utilizador nao autenticado.');
+
         $data = $request->validate([
             'subject' => ['required', 'string', 'max:255'],
             'inbox_id' => ['required', 'exists:inboxes,id'],
@@ -96,6 +126,28 @@ class TicketController extends Controller
             'attachments' => ['nullable', 'array'],
             'attachments.*' => ['file', 'max:10240'],
         ]);
+
+        if ($user->isOperator()) {
+            $this->ensureInboxAccess($user, (int) $data['inbox_id']);
+        } else {
+            abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
+            abort_if(
+                (int) $data['entity_id'] !== (int) $user->entity_id,
+                403,
+                'Clientes so podem criar tickets na sua entidade.'
+            );
+            abort_if(
+                ! empty($data['assigned_operator_id']),
+                403,
+                'Clientes nao podem atribuir operadores diretamente.'
+            );
+        }
+
+        $this->ensureContactBelongsToEntity($data['creator_contact_id'] ?? null, (int) $data['entity_id']);
+
+        if (! empty($data['assigned_operator_id'])) {
+            $this->ensureAssignableOperator((int) $data['assigned_operator_id'], (int) $data['inbox_id']);
+        }
 
         $ticket = DB::transaction(function () use ($request, $data) {
             $ticket = Ticket::create([
@@ -147,6 +199,12 @@ class TicketController extends Controller
 
     public function update(Request $request, Ticket $ticket): JsonResponse
     {
+        $user = $request->user();
+
+        abort_if(! $user, 401, 'Utilizador nao autenticado.');
+        $this->ensureOperator($user);
+        $this->ensureCanAccessTicket($ticket, $user);
+
         $data = $request->validate([
             'subject' => ['sometimes', 'required', 'string', 'max:255'],
             'ticket_status_id' => ['sometimes', 'required', 'exists:ticket_statuses,id'],
@@ -155,7 +213,21 @@ class TicketController extends Controller
             'inbox_id' => ['sometimes', 'required', 'exists:inboxes,id'],
         ]);
 
+        $previousAssignedOperatorId = $ticket->assigned_operator_id;
+
+        $targetInboxId = isset($data['inbox_id']) ? (int) $data['inbox_id'] : (int) $ticket->inbox_id;
+        $this->ensureInboxAccess($user, $targetInboxId);
+
+        if (! empty($data['assigned_operator_id'])) {
+            $this->ensureAssignableOperator((int) $data['assigned_operator_id'], $targetInboxId);
+        }
+
         $ticket->update($data);
+
+        if (array_key_exists('assigned_operator_id', $data) && $this->hasAssignmentChanged($previousAssignedOperatorId, $ticket->assigned_operator_id)) {
+            $ticket->loadMissing(['assignedOperator']);
+            $this->notifyTicketAssigned($ticket);
+        }
 
         ActivityLog::create([
             'ticket_id' => $ticket->id,
@@ -197,5 +269,70 @@ class TicketController extends Controller
             Notification::route('mail', $emails->all())
                 ->notify(new TicketCreatedNotification($ticket));
         }
+    }
+
+    private function hasAssignmentChanged(?int $previousOperatorId, ?int $currentOperatorId): bool
+    {
+        return (int) ($previousOperatorId ?? 0) !== (int) ($currentOperatorId ?? 0);
+    }
+
+    private function notifyTicketAssigned(Ticket $ticket): void
+    {
+        if (! $ticket->assignedOperator?->email) {
+            return;
+        }
+
+        Notification::route('mail', $ticket->assignedOperator->email)
+            ->notify(new TicketAssignedNotification($ticket));
+    }
+
+    private function ensureOperator(User $user): void
+    {
+        abort_if(! $user->isOperator(), 403, 'Apenas operadores podem executar esta operacao.');
+    }
+
+    private function ensureCanAccessTicket(Ticket $ticket, User $user): void
+    {
+        if ($user->isOperator()) {
+            $this->ensureInboxAccess($user, (int) $ticket->inbox_id);
+
+            return;
+        }
+
+        abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
+        abort_if((int) $ticket->entity_id !== (int) $user->entity_id, 403, 'Sem permissao para este ticket.');
+    }
+
+    private function ensureInboxAccess(User $user, int $inboxId): void
+    {
+        $allowed = $user->inboxes()->where('inboxes.id', $inboxId)->exists();
+        abort_if(! $allowed, 403, 'Operador sem permissao para esta inbox.');
+    }
+
+    private function ensureContactBelongsToEntity(?int $contactId, int $entityId): void
+    {
+        if (! $contactId) {
+            return;
+        }
+
+        $isValid = Contact::query()
+            ->whereKey($contactId)
+            ->whereHas('entities', fn ($q) => $q->where('entities.id', $entityId))
+            ->exists();
+
+        abort_if(! $isValid, 422, 'O contacto criador nao pertence a entidade selecionada.');
+    }
+
+    private function ensureAssignableOperator(int $operatorId, int $inboxId): void
+    {
+        $operator = User::query()
+            ->whereKey($operatorId)
+            ->where('role', 'operator')
+            ->first();
+
+        abort_if(! $operator, 422, 'Operador associado invalido.');
+
+        $hasInboxAccess = $operator->inboxes()->where('inboxes.id', $inboxId)->exists();
+        abort_if(! $hasInboxAccess, 422, 'O operador associado nao tem acesso a inbox selecionada.');
     }
 }

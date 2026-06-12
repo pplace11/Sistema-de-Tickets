@@ -23,6 +23,7 @@
                 <RouterLink to="/tickets">Tickets</RouterLink>
                 <RouterLink to="/entities">Entidades</RouterLink>
                 <RouterLink to="/contacts">Contactos</RouterLink>
+                <RouterLink v-if="auth.user?.role === 'operator'" to="/users">Utilizadores</RouterLink>
             </nav>
 
             <!-- Rodape: conta -->
@@ -59,45 +60,47 @@ const logout = async () => {
 </script>
 
 <style scoped>
-/* Layout */
 .shell {
     min-height: 100vh;
     display: grid;
-    grid-template-columns: 230px 1fr;
-    background: #f0f2f5;
+    grid-template-columns: 274px 1fr;
+    background:
+        radial-gradient(circle at top right, rgba(42, 157, 143, 0.08), transparent 20%),
+        linear-gradient(180deg, #eef3f6 0%, #f6f8fa 100%);
 }
 
-/* Sidebar */
 .sidebar {
-    background: #14192e;
+    background:
+        linear-gradient(180deg, rgba(10, 23, 40, 0.98) 0%, rgba(17, 44, 67, 0.98) 52%, rgba(24, 88, 94, 0.96) 100%);
     color: #fff;
-    padding: 20px 14px;
+    padding: 22px 16px;
     display: flex;
     flex-direction: column;
     gap: 0;
     min-height: 100vh;
     position: sticky;
     top: 0;
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
-/* Workspace topo */
 .workspace {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 10px 18px;
-    margin-bottom: 6px;
+    padding: 10px 12px 20px;
+    margin-bottom: 10px;
 }
 
 .ws-icon {
-    width: 38px;
-    height: 38px;
-    background: rgba(255,255,255,0.12);
-    border-radius: 10px;
+    width: 42px;
+    height: 42px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08));
+    border-radius: 14px;
     display: grid;
     place-items: center;
     flex: 0 0 auto;
     color: rgba(255,255,255,0.9);
+    box-shadow: 0 14px 24px rgba(0, 0, 0, 0.14);
 }
 
 .ws-label {
@@ -112,64 +115,67 @@ const logout = async () => {
 
 .ws-name {
     display: block;
-    font-size: 0.98rem;
-    font-weight: 700;
+    font-size: 1.04rem;
+    font-weight: 800;
     color: #fff;
     line-height: 1;
 }
 
-/* Nav links */
 nav {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 6px;
     flex: 1;
 }
 
 nav a {
-    display: block;
-    color: rgba(255, 255, 255, 0.60);
+    display: flex;
+    align-items: center;
+    color: rgba(255, 255, 255, 0.68);
     text-decoration: none;
-    padding: 9px 12px;
-    border-radius: 8px;
+    padding: 12px 14px;
+    border-radius: 14px;
     font-size: 0.95rem;
-    transition: background .15s, color .15s;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    transition: background .15s, color .15s, transform .15s;
 }
 
 nav a:hover {
     color: rgba(255,255,255,0.92);
-    background: rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.08);
+    transform: translateX(2px);
 }
 
 nav a.router-link-active {
-    background: rgba(255, 255, 255, 0.11);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08));
     color: #fff;
-    font-weight: 600;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
-/* Account footer */
 .account {
     margin-top: auto;
-    padding-top: 18px;
-    border-top: 1px solid rgba(255,255,255,0.08);
+    padding-top: 20px;
+    border-top: 1px solid rgba(255,255,255,0.10);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 16px 10px 6px;
+    padding: 18px 12px 8px;
 }
 
 .account-info {
     display: grid;
     text-decoration: none;
-    border-radius: 8px;
-    padding: 4px 6px;
-    margin: -4px -6px;
+    border-radius: 12px;
+    padding: 8px 10px;
+    margin: -8px -10px;
     transition: background .15s;
 }
 
 .account-info:hover {
-    background: rgba(255,255,255,0.07);
+    background: rgba(255,255,255,0.08);
 }
 
 .account-label {
@@ -183,17 +189,17 @@ nav a.router-link-active {
 
 .account-name {
     display: block;
-    font-size: 0.92rem;
-    font-weight: 600;
+    font-size: 0.96rem;
+    font-weight: 700;
     color: rgba(255,255,255,0.88);
 }
 
 .logout-btn {
-    background: transparent;
-    border: none;
-    color: rgba(255,255,255,0.45);
-    padding: 6px;
-    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.06);
+    color: rgba(255,255,255,0.66);
+    padding: 8px;
+    border-radius: 12px;
     cursor: pointer;
     display: grid;
     place-items: center;
@@ -202,16 +208,14 @@ nav a.router-link-active {
 }
 
 .logout-btn:hover {
-    background: rgba(255,255,255,0.08);
-    color: rgba(255,255,255,0.85);
+    background: rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.95);
 }
 
-/* Content */
 .content {
     padding: 28px;
 }
 
-/* Responsive */
 @media (max-width: 900px) {
     .shell {
         grid-template-columns: 1fr;
@@ -233,11 +237,16 @@ nav a.router-link-active {
 
     nav a {
         white-space: nowrap;
+        transform: none;
     }
 
     .account {
         padding: 12px 10px 0;
         margin-top: 14px;
+    }
+
+    .content {
+        padding: 18px;
     }
 }
 </style>
