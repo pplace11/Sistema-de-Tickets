@@ -5,7 +5,7 @@
                 <section class="left">
                     <div class="topbar">
                         <div class="brand-block">
-                            <div class="brand">TicketFlow</div>
+                            <img class="brand-logo" :src="logoSrc" alt="TicketFlow" />
                             <p class="brand-note">Plataforma de suporte interno e externo</p>
                         </div>
                         <div class="pill">Multidepartamento</div>
@@ -112,6 +112,10 @@
     </div>
 </template>
 
+<script setup>
+const logoSrc = '/image/ticketflow-logo.svg';
+</script>
+
 <style scoped>
 .wrap {
     min-height: 100vh;
@@ -186,12 +190,12 @@
     gap: 8px;
 }
 
-.brand {
-    letter-spacing: 0.28em;
-    text-transform: uppercase;
-    font-weight: 700;
-    font-size: 0.78rem;
-    color: rgba(255, 255, 255, 0.85);
+.brand-logo {
+    width: 172px;
+    max-width: 52vw;
+    height: auto;
+    display: block;
+    filter: drop-shadow(0 12px 20px rgba(8, 24, 36, 0.3));
 }
 
 .brand-note {

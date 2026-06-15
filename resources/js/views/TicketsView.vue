@@ -11,7 +11,12 @@ const lookups = ref({ inboxes: [], ticketTypes: [], ticketStatuses: [] });
 const auth = useAuthStore();
 const isOperator = computed(() => auth.user?.role === 'operator');
 const userEntityId = computed(() => auth.user?.entity_id || '');
-const userEntityName = computed(() => auth.user?.entity?.name || `#${userEntityId.value || '-'}`);
+const filterHint = computed(() => isOperator.value
+    ? 'Pesquisa por numero, assunto, email ou entidade'
+    : 'Pesquisa por numero, assunto ou email');
+const filterPlaceholder = computed(() => isOperator.value
+    ? 'Pesquisar por numero, assunto, email ou entidade'
+    : 'Pesquisar por numero, assunto ou email');
 
 const filters = ref({ search: '', inbox_id: '', ticket_status_id: '', ticket_type_id: '', entity_id: '' });
 const form = ref({
@@ -56,22 +61,28 @@ const load = async () => {
     loading.value = true;
 
     try {
-        const [ticketsResponse, entitiesResponse, lookupsResponse] = await Promise.all([
+        const requests = [
             api.get('/tickets', { params: filters.value }),
-            api.get('/entities'),
             api.get('/lookups'),
-        ]);
+            api.get('/entities'),
+        ];
+
+        const [ticketsResponse, lookupsResponse, entitiesResponse] = await Promise.all(requests);
 
         tickets.value = ticketsResponse.data.data;
-        entities.value = entitiesResponse.data.data;
         lookups.value = lookupsResponse.data;
+        entities.value = entitiesResponse?.data?.data ?? [];
 
         if (!form.value.ticket_status_id && lookups.value.ticketStatuses.length > 0) {
             form.value.ticket_status_id = lookups.value.ticketStatuses[0].id;
         }
 
-        if (!isOperator.value && userEntityId.value) {
-            form.value.entity_id = userEntityId.value;
+        if (!form.value.ticket_type_id && lookups.value.ticketTypes.length > 0) {
+            form.value.ticket_type_id = lookups.value.ticketTypes[0].id;
+        }
+
+        if (!form.value.entity_id && entities.value.length > 0) {
+            form.value.entity_id = userEntityId.value || entities.value[0].id;
         }
     } finally {
         loading.value = false;
@@ -84,7 +95,8 @@ const createTicket = async () => {
     try {
         await api.post('/tickets', {
             ...form.value,
-            entity_id: isOperator.value ? form.value.entity_id : userEntityId.value,
+            ticket_type_id: form.value.ticket_type_id || lookups.value.ticketTypes[0]?.id || '',
+            entity_id: form.value.entity_id || userEntityId.value || entities.value[0]?.id || '',
             cc: form.value.cc
                 ? form.value.cc.split(',').map((email) => email.trim()).filter(Boolean)
                 : [],
@@ -95,7 +107,7 @@ const createTicket = async () => {
             inbox_id: '',
             ticket_type_id: '',
             ticket_status_id: lookups.value.ticketStatuses[0]?.id || '',
-            entity_id: isOperator.value ? '' : userEntityId.value,
+            entity_id: entities.value[0]?.id || '',
             message: '',
             cc: '',
         };
@@ -115,21 +127,25 @@ onMounted(load);
             <div>
                 <p class="eyebrow">Operacao</p>
                 <h2>Gestao de tickets</h2>
-                <p class="subtitle">Filtra, acompanha e cria novos pedidos num unico painel.</p>
+                <p class="subtitle">
+                    {{ isOperator
+                        ? 'Filtra, acompanha e cria novos pedidos num unico painel.'
+                        : 'Abre novos pedidos de forma rapida para a tua equipa.' }}
+                </p>
             </div>
-            <button class="btn btn-dark" :disabled="loading" @click="load">
+            <button v-if="isOperator" class="btn btn-dark" :disabled="loading" @click="load">
                 {{ loading ? 'A atualizar...' : 'Atualizar lista' }}
             </button>
         </header>
 
-        <section class="box">
+        <section v-if="isOperator" class="box">
             <div class="box-head">
                 <h3>Filtros de pesquisa</h3>
-                <span class="hint">Pesquisa por numero, assunto, email ou entidade</span>
+                <span class="hint">{{ filterHint }}</span>
             </div>
 
             <div class="filters">
-                <input v-model="filters.search" placeholder="Pesquisar por numero, assunto, email ou entidade" />
+                <input v-model="filters.search" :placeholder="filterPlaceholder" />
                 <select v-model="filters.inbox_id">
                     <option value="">Inbox</option>
                     <option v-for="inbox in lookups.inboxes" :key="inbox.id" :value="inbox.id">{{ inbox.name }}</option>
@@ -154,7 +170,7 @@ onMounted(load);
                     <option disabled value="">Inbox</option>
                     <option v-for="inbox in lookups.inboxes" :key="inbox.id" :value="inbox.id">{{ inbox.name }}</option>
                 </select>
-                <select v-model="form.ticket_type_id">
+                <select v-if="isOperator" v-model="form.ticket_type_id">
                     <option disabled value="">Tipo</option>
                     <option v-for="type in lookups.ticketTypes" :key="type.id" :value="type.id">{{ type.name }}</option>
                 </select>
@@ -166,10 +182,6 @@ onMounted(load);
                     <option disabled value="">Entidade</option>
                     <option v-for="entity in entities" :key="entity.id" :value="entity.id">{{ entity.name }}</option>
                 </select>
-                <div v-else class="locked-entity">
-                    <span class="locked-label">Entidade associada</span>
-                    <strong>{{ userEntityName }}</strong>
-                </div>
                 <input v-model="form.cc" placeholder="CC: email1@x.pt, email2@x.pt" />
                 <textarea v-model="form.message" placeholder="Mensagem"></textarea>
                 <button class="btn btn-primary" :disabled="submitting" @click="createTicket">
@@ -178,7 +190,7 @@ onMounted(load);
             </div>
         </section>
 
-        <section class="box list-section">
+        <section v-if="isOperator" class="box list-section">
             <div class="box-head">
                 <h3>Lista de tickets</h3>
                 <span class="hint">{{ tickets.length }} registos na vista atual</span>
@@ -200,7 +212,7 @@ onMounted(load);
                         <span class="status" :class="statusClass(ticket.status?.name)">
                             {{ ticket.status?.name || '-' }}
                         </span>
-                        <span class="entity">{{ ticket.entity?.name || 'Sem entidade' }}</span>
+                        <span v-if="isOperator" class="entity">{{ ticket.entity?.name || 'Sem entidade' }}</span>
                     </div>
                 </li>
 
@@ -292,22 +304,6 @@ h2 {
     grid-column: 1 / -1;
     min-height: 100px;
     resize: vertical;
-}
-
-.locked-entity {
-    display: grid;
-    gap: 4px;
-    border: 1px dashed #b8c7d8;
-    border-radius: 10px;
-    padding: 10px;
-    background: #f8fbff;
-}
-
-.locked-label {
-    color: #64748b;
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
 }
 
 .btn {

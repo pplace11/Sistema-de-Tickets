@@ -45,8 +45,15 @@ export const useAuthStore = defineStore('auth', {
         },
 
         async logout() {
-            await authHttp.post('/logout');
-            this.user = null;
+            try {
+                await authHttp.get('/sanctum/csrf-cookie');
+                await authHttp.post('/logout');
+            } catch {
+                // Force local sign-out even when backend session is already invalid.
+            } finally {
+                this.user = null;
+                this.loaded = true;
+            }
         },
     },
 });

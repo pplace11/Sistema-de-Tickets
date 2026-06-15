@@ -1,8 +1,11 @@
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import api from '../services/api';
+import { useAuthStore } from '../stores/auth';
 
 const loading = ref(true);
+const auth = useAuthStore();
+const isOperator = computed(() => auth.user?.role === 'operator');
 const stats = ref({
     tickets: 0,
     entities: 0,
@@ -10,23 +13,40 @@ const stats = ref({
     inboxes: 0,
 });
 const recentTickets = ref([]);
-const quickLinks = [
-    {
-        title: 'Abrir ticket',
-        description: 'Regista um novo pedido e acompanha o fluxo completo.',
-        to: '/tickets',
-    },
-    {
-        title: 'Gerir entidades',
-        description: 'Consulta clientes, parceiros e contexto associado.',
-        to: '/entities',
-    },
-    {
-        title: 'Atualizar contactos',
-        description: 'Mantem a rede de contactos ligada a cada entidade.',
-        to: '/contacts',
-    },
-];
+const quickLinks = computed(() => {
+    if (!isOperator.value) {
+        return [
+            {
+                title: 'Abrir ticket',
+                description: 'Regista um novo pedido e acompanha o estado da solicitacao.',
+                to: '/tickets',
+            },
+            {
+                title: 'Consultar tickets',
+                description: 'Acede aos teus pedidos recentes e responde quando necessario.',
+                to: '/tickets',
+            },
+        ];
+    }
+
+    return [
+        {
+            title: 'Abrir ticket',
+            description: 'Regista um novo pedido e acompanha o fluxo completo.',
+            to: '/tickets',
+        },
+        {
+            title: 'Gerir entidades',
+            description: 'Consulta clientes, parceiros e contexto associado.',
+            to: '/entities',
+        },
+        {
+            title: 'Atualizar contactos',
+            description: 'Mantem a rede de contactos ligada a cada entidade.',
+            to: '/contacts',
+        },
+    ];
+});
 
 const formatNumber = (value) => new Intl.NumberFormat('pt-PT').format(value ?? 0);
 
@@ -62,17 +82,22 @@ const loadDashboard = async () => {
     loading.value = true;
 
     try {
-        const [ticketsResponse, entitiesResponse, contactsResponse, lookupsResponse] = await Promise.all([
+        const requests = [
             api.get('/tickets', { params: { page: 1 } }),
-            api.get('/entities', { params: { page: 1 } }),
-            api.get('/contacts', { params: { page: 1 } }),
             api.get('/lookups'),
-        ]);
+        ];
+
+        if (isOperator.value) {
+            requests.push(api.get('/entities', { params: { page: 1 } }));
+            requests.push(api.get('/contacts', { params: { page: 1 } }));
+        }
+
+        const [ticketsResponse, lookupsResponse, entitiesResponse, contactsResponse] = await Promise.all(requests);
 
         stats.value = {
             tickets: ticketsResponse.data.total ?? 0,
-            entities: entitiesResponse.data.total ?? 0,
-            contacts: contactsResponse.data.total ?? 0,
+            entities: entitiesResponse?.data?.total ?? 0,
+            contacts: contactsResponse?.data?.total ?? 0,
             inboxes: lookupsResponse.data.inboxes?.length ?? 0,
         };
 
@@ -90,15 +115,17 @@ onMounted(loadDashboard);
         <header class="hero-panel">
             <div class="hero-copy">
                 <p class="eyebrow">Painel de controlo</p>
-                <h2>Dashboard operacional</h2>
+                <h2>{{ isOperator ? 'Dashboard operacional' : 'Dashboard do cliente' }}</h2>
                 <p class="subtitle">
-                    Vista executiva para acompanhar tickets, entidades e capacidade de atendimento numa unica superficie.
+                    {{ isOperator
+                        ? 'Vista executiva para acompanhar tickets, entidades e capacidade de atendimento numa unica superficie.'
+                        : 'Vista simplificada para abrir pedidos e acompanhar tickets da tua entidade.' }}
                 </p>
 
                 <div class="hero-tags">
                     <span>Seguimento por inbox</span>
-                    <span>Historico consolidado</span>
-                    <span>Operacao interna e externa</span>
+                    <span>{{ isOperator ? 'Historico consolidado' : 'Acompanhamento de pedidos' }}</span>
+                    <span>{{ isOperator ? 'Operacao interna e externa' : 'Comunicacao centralizada' }}</span>
                 </div>
             </div>
 
@@ -131,7 +158,7 @@ onMounted(loadDashboard);
                 <small>Total geral registado</small>
             </article>
 
-            <article class="stat-card stat-entities">
+            <article v-if="isOperator" class="stat-card stat-entities">
                 <div class="stat-top">
                     <span class="icon-wrap">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -147,7 +174,7 @@ onMounted(loadDashboard);
                 <small>Clientes e parceiros</small>
             </article>
 
-            <article class="stat-card stat-contacts">
+            <article v-if="isOperator" class="stat-card stat-contacts">
                 <div class="stat-top">
                     <span class="icon-wrap">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -181,9 +208,9 @@ onMounted(loadDashboard);
                 <div class="section-head">
                     <div>
                         <p class="section-eyebrow">Atalhos de trabalho</p>
-                        <h3>Entradas rapidas para a operacao</h3>
+                        <h3>{{ isOperator ? 'Entradas rapidas para a operacao' : 'Acoes rapidas do cliente' }}</h3>
                     </div>
-                    <span class="section-note">Acoes frequentes</span>
+                    <span class="section-note">{{ isOperator ? 'Acoes frequentes' : 'Area do cliente' }}</span>
                 </div>
 
                 <div class="quick-links">
@@ -216,7 +243,7 @@ onMounted(loadDashboard);
                             </div>
                             <p class="ticket-subject">{{ ticket.subject }}</p>
                             <small class="ticket-meta">
-                                <span class="meta-pill">{{ ticket.entity?.name || 'Sem entidade' }}</span>
+                                <span v-if="isOperator" class="meta-pill">{{ ticket.entity?.name || 'Sem entidade' }}</span>
                                 <span class="meta-pill">{{ ticket.inbox?.name || 'Sem inbox' }}</span>
                             </small>
                         </div>

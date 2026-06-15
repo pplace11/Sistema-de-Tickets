@@ -4,16 +4,11 @@
             <!-- Topo: workspace -->
             <div class="workspace">
                 <div class="ws-icon">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-                        <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-                        <rect x="3" y="14" width="7" height="7" rx="1.5"/>
-                        <rect x="14" y="14" width="7" height="7" rx="1.5"/>
-                    </svg>
+                    <img :src="logoSrc" alt="TicketFlow" />
                 </div>
                 <div>
                     <span class="ws-label">SISTEMA</span>
-                    <span class="ws-name">TicketFlow</span>
+                    <span class="ws-name">Sistema de Tickets</span>
                 </div>
             </div>
 
@@ -21,8 +16,8 @@
             <nav>
                 <RouterLink to="/dashboard">Dashboard</RouterLink>
                 <RouterLink to="/tickets">Tickets</RouterLink>
-                <RouterLink to="/entities">Entidades</RouterLink>
-                <RouterLink to="/contacts">Contactos</RouterLink>
+                <RouterLink v-if="auth.user?.role === 'operator'" to="/entities">Entidades</RouterLink>
+                <RouterLink v-if="auth.user?.role === 'operator'" to="/contacts">Contactos</RouterLink>
                 <RouterLink v-if="auth.user?.role === 'operator'" to="/users">Utilizadores</RouterLink>
             </nav>
 
@@ -52,10 +47,14 @@
 import { useAuthStore } from '../stores/auth';
 
 const auth = useAuthStore();
+const logoSrc = '/image/ticketflow-logo.svg';
 
 const logout = async () => {
-    await auth.logout();
-    window.location.assign('/');
+    try {
+        await auth.logout();
+    } finally {
+        window.location.assign('/login');
+    }
 };
 </script>
 
@@ -92,15 +91,20 @@ const logout = async () => {
 }
 
 .ws-icon {
-    width: 42px;
+    width: 58px;
     height: 42px;
-    background: linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.08));
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.04));
     border-radius: 14px;
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    color: rgba(255,255,255,0.9);
     box-shadow: 0 14px 24px rgba(0, 0, 0, 0.14);
+}
+
+.ws-icon img {
+    width: 44px;
+    height: auto;
+    display: block;
 }
 
 .ws-label {
@@ -115,8 +119,8 @@ const logout = async () => {
 
 .ws-name {
     display: block;
-    font-size: 1.04rem;
-    font-weight: 800;
+    font-size: 0.94rem;
+    font-weight: 700;
     color: #fff;
     line-height: 1;
 }

@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ticketflowGradient" x1="26" y1="438" x2="486" y2="42" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#40E0C8"/>
+      <stop offset="1" stop-color="#2A7CFF"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M88 121H426C437.046 121 446 129.954 446 141V197C460.359 197 472 208.641 472 223V289C472 303.359 460.359 315 446 315V371C446 382.046 437.046 391 426 391H88C76.9543 391 68 382.046 68 371V315C53.6406 315 42 303.359 42 289V223C42 208.641 53.6406 197 68 197V141C68 129.954 76.9543 121 88 121Z" stroke="url(#ticketflowGradient)" stroke-width="16" stroke-linejoin="round"/>
+  <path d="M118 181H167" stroke="url(#ticketflowGradient)" stroke-width="16" stroke-linecap="round"/>
+  <path d="M118 276H167" stroke="url(#ticketflowGradient)" stroke-width="16" stroke-linecap="round"/>
+  <path d="M118 306H167" stroke="url(#ticketflowGradient)" stroke-width="16" stroke-linecap="round"/>
+  <path d="M198 141V371" stroke="url(#ticketflowGradient)" stroke-width="16" stroke-linecap="round" stroke-dasharray="20 18"/>
+  <rect x="226" y="166" width="144" height="48" rx="6" stroke="url(#ticketflowGradient)" stroke-width="16"/>
+  <path d="M288 361V284" stroke="url(#ticketflowGradient)" stroke-width="16" stroke-linecap="round"/>
+  <path d="M288 284C296.798 284 305.361 281.17 312.426 275.93C319.49 270.69 324.679 263.323 327.214 254.919C329.749 246.514 329.496 237.513 326.494 229.264C323.493 221.016 317.902 213.95 310.555 209.125V247L288 261L265.445 247V209.125C258.098 213.95 252.507 221.016 249.506 229.264C246.504 237.513 246.251 246.514 248.786 254.919C251.321 263.323 256.51 270.69 263.574 275.93C270.639 281.17 279.202 284 288 284Z" stroke="url(#ticketflowGradient)" stroke-width="16" stroke-linejoin="round"/>
+</svg>

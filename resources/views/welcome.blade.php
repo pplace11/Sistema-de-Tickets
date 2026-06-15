@@ -4,6 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TicketFlow | Sistema de Tickets</title>
+    <link rel="icon" type="image/svg+xml" href="{{ asset('image/ticketflow-logo.svg') }}">
+    <link rel="shortcut icon" href="{{ asset('image/ticketflow-logo.svg') }}">
     <meta name="description" content="Sistema de tickets interno e externo para gestao centralizada de pedidos, entidades, contactos e comunicacoes." />
     @fonts
     <style>
@@ -34,6 +36,22 @@
             display: grid;
             place-items: center;
             padding: 24px;
+        }
+
+        .card-wrapper {
+            position: relative;
+        }
+
+        .card-wrapper::before {
+            content: '🔧 Sistema de Tickets';
+            position: absolute;
+            top: -50px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--blue);
+            white-space: nowrap;
         }
 
         .card {
@@ -256,6 +274,7 @@
 </head>
 <body>
     <div class="wrap">
+        <div class="card-wrapper">
         <div class="card">
             <div class="hero">
                 <section class="left">
@@ -312,6 +331,7 @@
                 </section>
             </div>
 
+        </div>
         </div>
     </div>
 </body>
