@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\Ticket;
+use App\Support\TicketNotificationTemplate;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -22,12 +23,22 @@ class TicketCreatedNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
-            ->subject('Novo ticket '.$this->ticket->ticket_number)
-            ->greeting('Olá,')
-            ->line('Foi criado um novo ticket no sistema.')
-            ->line('Número: '.$this->ticket->ticket_number)
-            ->line('Assunto: '.$this->ticket->subject)
-            ->line('Mensagem: '.$this->ticket->message);
+        $template = config('tickets.notifications.created');
+
+        $replacements = [
+            'ticket_number' => $this->ticket->ticket_number,
+            'subject' => $this->ticket->subject,
+            'message' => strip_tags($this->ticket->message),
+        ];
+
+        $mail = (new MailMessage)
+            ->subject(TicketNotificationTemplate::render((string) ($template['subject'] ?? ''), $replacements))
+            ->greeting(TicketNotificationTemplate::render((string) ($template['greeting'] ?? 'Ola,'), $replacements));
+
+        foreach (($template['lines'] ?? []) as $line) {
+            $mail->line(TicketNotificationTemplate::render((string) $line, $replacements));
+        }
+
+        return $mail;
     }
 }

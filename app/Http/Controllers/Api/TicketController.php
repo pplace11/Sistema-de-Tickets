@@ -12,6 +12,7 @@ use App\Notifications\TicketAssignedNotification;
 use App\Notifications\TicketCreatedNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 
@@ -149,47 +150,63 @@ class TicketController extends Controller
             $this->ensureAssignableOperator((int) $data['assigned_operator_id'], (int) $data['inbox_id']);
         }
 
-        $ticket = DB::transaction(function () use ($request, $data) {
-            $ticket = Ticket::create([
-                'ticket_number' => $this->generateTicketNumber(),
-                'subject' => $data['subject'],
-                'inbox_id' => $data['inbox_id'],
-                'ticket_type_id' => $data['ticket_type_id'],
-                'ticket_status_id' => $data['ticket_status_id'],
-                'assigned_operator_id' => $data['assigned_operator_id'] ?? null,
-                'entity_id' => $data['entity_id'],
-                'creator_contact_id' => $data['creator_contact_id'] ?? null,
-                'creator_user_id' => $request->user()?->id,
-                'message' => $data['message'],
-            ]);
+        $ticket = null;
 
-            foreach ($data['cc'] ?? [] as $email) {
-                $ticket->cc()->create(['email' => $email]);
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            try {
+                $ticket = DB::transaction(function () use ($request, $data) {
+                    $ticket = Ticket::create([
+                        'ticket_number' => $this->generateTicketNumber(),
+                        'subject' => $data['subject'],
+                        'inbox_id' => $data['inbox_id'],
+                        'ticket_type_id' => $data['ticket_type_id'],
+                        'ticket_status_id' => $data['ticket_status_id'],
+                        'assigned_operator_id' => $data['assigned_operator_id'] ?? null,
+                        'entity_id' => $data['entity_id'],
+                        'creator_contact_id' => $data['creator_contact_id'] ?? null,
+                        'creator_user_id' => $request->user()?->id,
+                        'message' => $data['message'],
+                    ]);
+
+                    foreach ($data['cc'] ?? [] as $email) {
+                        $ticket->cc()->create(['email' => $email]);
+                    }
+
+                    foreach ($request->file('attachments', []) as $file) {
+                        $path = $file->store('tickets/'.$ticket->id, 'public');
+                        TicketAttachment::create([
+                            'ticket_id' => $ticket->id,
+                            'original_name' => $file->getClientOriginalName(),
+                            'path' => $path,
+                            'size' => $file->getSize(),
+                            'mime_type' => $file->getMimeType(),
+                        ]);
+                    }
+
+                    ActivityLog::create([
+                        'ticket_id' => $ticket->id,
+                        'user_id' => $request->user()?->id,
+                        'action' => 'ticket_created',
+                        'description' => 'Ticket criado',
+                        'meta' => [
+                            'ticket_number' => $ticket->ticket_number,
+                        ],
+                    ]);
+
+                    return $ticket;
+                });
+
+                break;
+            } catch (QueryException $exception) {
+                $duplicateEntry = in_array((string) ($exception->errorInfo[0] ?? ''), ['23000', '23505'], true);
+
+                if (! $duplicateEntry || $attempt === 2) {
+                    throw $exception;
+                }
             }
+        }
 
-            foreach ($request->file('attachments', []) as $file) {
-                $path = $file->store('tickets/'.$ticket->id, 'public');
-                TicketAttachment::create([
-                    'ticket_id' => $ticket->id,
-                    'original_name' => $file->getClientOriginalName(),
-                    'path' => $path,
-                    'size' => $file->getSize(),
-                    'mime_type' => $file->getMimeType(),
-                ]);
-            }
-
-            ActivityLog::create([
-                'ticket_id' => $ticket->id,
-                'user_id' => $request->user()?->id,
-                'action' => 'ticket_created',
-                'description' => 'Ticket criado',
-                'meta' => [
-                    'ticket_number' => $ticket->ticket_number,
-                ],
-            ]);
-
-            return $ticket;
-        });
+        abort_if(! $ticket, 500, 'Nao foi possivel criar o ticket.');
 
         $ticket->load(['cc', 'creatorContact', 'creatorUser']);
         $this->notifyTicketCreated($ticket);

@@ -54,6 +54,31 @@ const statusClass = (statusName) => {
 
 const fileUrl = (path) => `/storage/${path}`;
 
+const escapeHtml = (value) => value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+const sanitizeRichText = (html) => html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\son[a-z]+="[^"]*"/gi, '')
+    .replace(/\son[a-z]+='[^']*'/gi, '')
+    .replace(/\sjavascript:/gi, ' ');
+
+const toRichHtml = (value) => {
+    if (!value) {
+        return '';
+    }
+
+    if (value.includes('<')) {
+        return sanitizeRichText(value);
+    }
+
+    return escapeHtml(value).replaceAll('\n', '<br>');
+};
+
 const replyAuthor = (reply) => {
     if (reply.author_user?.name) {
         return reply.author_user.name;
@@ -145,7 +170,7 @@ onMounted(loadTicket);
                 <div class="main">
                     <p class="number">{{ ticket.ticket_number }}</p>
                     <h3>{{ ticket.subject }}</h3>
-                    <p class="message">{{ ticket.message }}</p>
+                    <div class="message" v-html="toRichHtml(ticket.message)"></div>
                 </div>
 
                 <div class="meta">
@@ -182,7 +207,7 @@ onMounted(loadTicket);
                             <strong>{{ replyAuthor(reply) }}</strong>
                             <small>{{ formatDateTime(reply.created_at) }}</small>
                         </div>
-                        <p class="timeline-message">{{ reply.message }}</p>
+                        <div class="timeline-message" v-html="toRichHtml(reply.message)"></div>
 
                         <ul v-if="reply.attachments?.length" class="attachment-list inline">
                             <li v-for="attachment in reply.attachments" :key="attachment.id">

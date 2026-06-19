@@ -7,7 +7,10 @@ const loading = ref(true);
 const submitting = ref(false);
 const tickets = ref([]);
 const entities = ref([]);
-const lookups = ref({ inboxes: [], ticketTypes: [], ticketStatuses: [] });
+const lookups = ref({ inboxes: [], ticketTypes: [], ticketStatuses: [], operators: [] });
+const ticketAttachments = ref([]);
+const ticketFilesInputKey = ref(0);
+const messageEditor = ref(null);
 const auth = useAuthStore();
 const isOperator = computed(() => auth.user?.role === 'operator');
 const userEntityId = computed(() => auth.user?.entity_id || '');
@@ -18,7 +21,14 @@ const filterPlaceholder = computed(() => isOperator.value
     ? 'Pesquisar por numero, assunto, email ou entidade'
     : 'Pesquisar por numero, assunto ou email');
 
-const filters = ref({ search: '', inbox_id: '', ticket_status_id: '', ticket_type_id: '', entity_id: '' });
+const filters = ref({
+    search: '',
+    inbox_id: '',
+    ticket_status_id: '',
+    ticket_type_id: '',
+    assigned_operator_id: '',
+    entity_id: '',
+});
 const form = ref({
     subject: '',
     inbox_id: '',
@@ -28,6 +38,12 @@ const form = ref({
     message: '',
     cc: '',
 });
+
+const editorActions = [
+    { label: 'B', command: 'bold', title: 'Negrito' },
+    { label: 'I', command: 'italic', title: 'Italico' },
+    { label: 'Lista', command: 'insertUnorderedList', title: 'Lista' },
+];
 
 const formatDateTime = (value) => {
     if (!value) {
@@ -55,6 +71,41 @@ const statusClass = (statusName) => {
     }
 
     return 'is-open';
+};
+
+const onMessageEditorInput = () => {
+    form.value.message = messageEditor.value?.innerHTML?.trim() ?? '';
+};
+
+const applyEditorCommand = (command) => {
+    if (!messageEditor.value) {
+        return;
+    }
+
+    messageEditor.value.focus();
+    document.execCommand(command, false);
+    onMessageEditorInput();
+};
+
+const insertEditorLink = () => {
+    const url = window.prompt('Introduza a URL do link');
+
+    if (!url) {
+        return;
+    }
+
+    if (!messageEditor.value) {
+        return;
+    }
+
+    messageEditor.value.focus();
+    document.execCommand('createLink', false, url.trim());
+    onMessageEditorInput();
+};
+
+const onTicketFilesChange = (event) => {
+    const files = event.target?.files;
+    ticketAttachments.value = files ? Array.from(files) : [];
 };
 
 const load = async () => {
@@ -93,13 +144,31 @@ const createTicket = async () => {
     submitting.value = true;
 
     try {
-        await api.post('/tickets', {
-            ...form.value,
-            ticket_type_id: form.value.ticket_type_id || lookups.value.ticketTypes[0]?.id || '',
-            entity_id: form.value.entity_id || userEntityId.value || entities.value[0]?.id || '',
-            cc: form.value.cc
-                ? form.value.cc.split(',').map((email) => email.trim()).filter(Boolean)
-                : [],
+        const payload = new FormData();
+
+        payload.append('subject', form.value.subject);
+        payload.append('inbox_id', String(form.value.inbox_id || ''));
+        payload.append('ticket_type_id', String(form.value.ticket_type_id || lookups.value.ticketTypes[0]?.id || ''));
+        payload.append('ticket_status_id', String(form.value.ticket_status_id || lookups.value.ticketStatuses[0]?.id || ''));
+        payload.append('entity_id', String(form.value.entity_id || userEntityId.value || entities.value[0]?.id || ''));
+        payload.append('message', form.value.message);
+
+        const ccList = form.value.cc
+            ? form.value.cc.split(',').map((email) => email.trim()).filter(Boolean)
+            : [];
+
+        for (const email of ccList) {
+            payload.append('cc[]', email);
+        }
+
+        for (const file of ticketAttachments.value) {
+            payload.append('attachments[]', file);
+        }
+
+        await api.post('/tickets', payload, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
         });
 
         form.value = {
@@ -111,6 +180,12 @@ const createTicket = async () => {
             message: '',
             cc: '',
         };
+        ticketAttachments.value = [];
+        ticketFilesInputKey.value += 1;
+
+        if (messageEditor.value) {
+            messageEditor.value.innerHTML = '';
+        }
 
         await load();
     } finally {
@@ -133,12 +208,12 @@ onMounted(load);
                         : 'Abre novos pedidos de forma rapida para a tua equipa.' }}
                 </p>
             </div>
-            <button v-if="isOperator" class="btn btn-dark" :disabled="loading" @click="load">
+            <button class="btn btn-dark" :disabled="loading" @click="load">
                 {{ loading ? 'A atualizar...' : 'Atualizar lista' }}
             </button>
         </header>
 
-        <section v-if="isOperator" class="box">
+        <section class="box">
             <div class="box-head">
                 <h3>Filtros de pesquisa</h3>
                 <span class="hint">{{ filterHint }}</span>
@@ -153,6 +228,18 @@ onMounted(load);
                 <select v-model="filters.ticket_status_id">
                     <option value="">Estado</option>
                     <option v-for="status in lookups.ticketStatuses" :key="status.id" :value="status.id">{{ status.name }}</option>
+                </select>
+                <select v-model="filters.ticket_type_id">
+                    <option value="">Tipo</option>
+                    <option v-for="type in lookups.ticketTypes" :key="type.id" :value="type.id">{{ type.name }}</option>
+                </select>
+                <select v-if="isOperator" v-model="filters.assigned_operator_id">
+                    <option value="">Operador</option>
+                    <option v-for="operator in lookups.operators" :key="operator.id" :value="operator.id">{{ operator.name }}</option>
+                </select>
+                <select v-if="isOperator" v-model="filters.entity_id">
+                    <option value="">Entidade</option>
+                    <option v-for="entity in entities" :key="entity.id" :value="entity.id">{{ entity.name }}</option>
                 </select>
                 <button class="btn btn-dark" @click="load">Filtrar</button>
             </div>
@@ -183,14 +270,48 @@ onMounted(load);
                     <option v-for="entity in entities" :key="entity.id" :value="entity.id">{{ entity.name }}</option>
                 </select>
                 <input v-model="form.cc" placeholder="CC: email1@x.pt, email2@x.pt" />
-                <textarea v-model="form.message" placeholder="Mensagem"></textarea>
+                <div class="editor-wrapper">
+                    <div class="editor-toolbar">
+                        <button
+                            v-for="action in editorActions"
+                            :key="action.command"
+                            type="button"
+                            class="editor-btn"
+                            :title="action.title"
+                            @click="applyEditorCommand(action.command)"
+                        >
+                            {{ action.label }}
+                        </button>
+                        <button type="button" class="editor-btn" title="Inserir link" @click="insertEditorLink">Link</button>
+                    </div>
+                    <div
+                        ref="messageEditor"
+                        class="editor-input"
+                        contenteditable="true"
+                        role="textbox"
+                        aria-label="Mensagem do ticket"
+                        @input="onMessageEditorInput"
+                    ></div>
+                </div>
+                <div class="upload-row">
+                    <label class="upload-label" :for="`ticket-files-${ticketFilesInputKey}`">Anexos iniciais</label>
+                    <input
+                        :id="`ticket-files-${ticketFilesInputKey}`"
+                        :key="ticketFilesInputKey"
+                        class="file-input"
+                        type="file"
+                        multiple
+                        @change="onTicketFilesChange"
+                    >
+                    <small class="upload-hint">Pode selecionar multiplos ficheiros (max 10MB por ficheiro).</small>
+                </div>
                 <button class="btn btn-primary" :disabled="submitting" @click="createTicket">
                     {{ submitting ? 'A criar ticket...' : 'Criar Ticket' }}
                 </button>
             </div>
         </section>
 
-        <section v-if="isOperator" class="box list-section">
+        <section class="box list-section">
             <div class="box-head">
                 <h3>Lista de tickets</h3>
                 <span class="hint">{{ tickets.length }} registos na vista atual</span>
@@ -290,7 +411,7 @@ h2 {
 
 .filters {
     display: grid;
-    grid-template-columns: 2fr repeat(2, 1fr) auto;
+    grid-template-columns: 2fr repeat(5, 1fr) auto;
     gap: 8px;
 }
 
@@ -300,10 +421,64 @@ h2 {
     gap: 8px;
 }
 
-.grid textarea {
+.editor-wrapper,
+.upload-row,
+.grid .btn-primary {
     grid-column: 1 / -1;
-    min-height: 100px;
-    resize: vertical;
+}
+
+.editor-wrapper {
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+    overflow: hidden;
+}
+
+.editor-toolbar {
+    display: flex;
+    gap: 6px;
+    padding: 8px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.editor-btn {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    border-radius: 8px;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    color: #334155;
+}
+
+.editor-input {
+    min-height: 130px;
+    padding: 10px;
+    outline: none;
+    color: #0f172a;
+}
+
+.upload-row {
+    display: grid;
+    gap: 4px;
+}
+
+.upload-label {
+    color: #334155;
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.file-input {
+    padding: 8px;
+    border: 1px dashed #b6c3d4;
+    border-radius: 10px;
+    background: #f8fbff;
+}
+
+.upload-hint {
+    color: #64748b;
+    font-size: 0.78rem;
 }
 
 .btn {

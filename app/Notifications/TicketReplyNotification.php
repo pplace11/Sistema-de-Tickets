@@ -4,6 +4,7 @@ namespace App\Notifications;
 
 use App\Models\Ticket;
 use App\Models\TicketReply;
+use App\Support\TicketNotificationTemplate;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -25,10 +26,22 @@ class TicketReplyNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
-            ->subject('Nova resposta no ticket '.$this->ticket->ticket_number)
-            ->greeting('Olá,')
-            ->line('O ticket '.$this->ticket->ticket_number.' recebeu uma nova resposta.')
-            ->line('Mensagem: '.$this->reply->message);
+        $template = config('tickets.notifications.reply');
+
+        $replacements = [
+            'ticket_number' => $this->ticket->ticket_number,
+            'subject' => $this->ticket->subject,
+            'reply_message' => strip_tags($this->reply->message),
+        ];
+
+        $mail = (new MailMessage)
+            ->subject(TicketNotificationTemplate::render((string) ($template['subject'] ?? ''), $replacements))
+            ->greeting(TicketNotificationTemplate::render((string) ($template['greeting'] ?? 'Ola,'), $replacements));
+
+        foreach (($template['lines'] ?? []) as $line) {
+            $mail->line(TicketNotificationTemplate::render((string) $line, $replacements));
+        }
+
+        return $mail;
     }
 }

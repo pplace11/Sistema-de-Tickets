@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\Ticket;
+use App\Support\TicketNotificationTemplate;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -22,12 +23,22 @@ class TicketAssignedNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage)
-            ->subject('Ticket atribuido '.$this->ticket->ticket_number)
-            ->greeting('Ola,')
-            ->line('Foi atribuido a si um ticket no sistema interno.')
-            ->line('Numero: '.$this->ticket->ticket_number)
-            ->line('Assunto: '.$this->ticket->subject)
-            ->line('Estado: '.($this->ticket->status?->name ?? '-'));
+        $template = config('tickets.notifications.assigned');
+
+        $replacements = [
+            'ticket_number' => $this->ticket->ticket_number,
+            'subject' => $this->ticket->subject,
+            'status_name' => $this->ticket->status?->name ?? '-',
+        ];
+
+        $mail = (new MailMessage)
+            ->subject(TicketNotificationTemplate::render((string) ($template['subject'] ?? ''), $replacements))
+            ->greeting(TicketNotificationTemplate::render((string) ($template['greeting'] ?? 'Ola,'), $replacements));
+
+        foreach (($template['lines'] ?? []) as $line) {
+            $mail->line(TicketNotificationTemplate::render((string) $line, $replacements));
+        }
+
+        return $mail;
     }
 }
