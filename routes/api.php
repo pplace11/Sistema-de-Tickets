@@ -16,6 +16,7 @@ Route::middleware('auth')->group(function () {
     Route::apiResource('entities', EntityController::class)->only(['index', 'store', 'show', 'update']);
     Route::apiResource('contacts', ContactController::class)->only(['index', 'store', 'show', 'update']);
     Route::apiResource('users', UserController::class)->only(['index', 'store']);
+    Route::put('/users/{user}/entities', [UserController::class, 'syncEntities']);
     Route::apiResource('tickets', TicketController::class)->only(['index', 'store', 'show', 'update']);
     Route::post('/tickets/{ticket}/replies', [TicketReplyController::class, 'store']);
 

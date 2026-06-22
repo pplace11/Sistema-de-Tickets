@@ -38,8 +38,10 @@ class TicketController extends Controller
             $allowedInboxIds = $user->inboxes()->pluck('inboxes.id');
             $query->whereIn('inbox_id', $allowedInboxIds);
         } else {
-            abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
-            $query->where('entity_id', (int) $user->entity_id);
+            $allowedEntityIds = $user->accessibleEntityIds();
+
+            abort_if($allowedEntityIds->isEmpty(), 403, 'Cliente sem entidade associada.');
+            $query->whereIn('entity_id', $allowedEntityIds->all());
         }
 
         if ($request->filled('inbox_id')) {
@@ -61,7 +63,7 @@ class TicketController extends Controller
         if ($request->filled('entity_id')) {
             $requestedEntityId = (int) $request->input('entity_id');
 
-            if (! $user->isOperator() && $requestedEntityId !== (int) $user->entity_id) {
+            if (! $user->isOperator() && ! $user->accessibleEntityIds()->contains($requestedEntityId)) {
                 $query->whereRaw('1 = 0');
             } else {
                 $query->where('entity_id', $requestedEntityId);
@@ -131,11 +133,13 @@ class TicketController extends Controller
         if ($user->isOperator()) {
             $this->ensureInboxAccess($user, (int) $data['inbox_id']);
         } else {
-            abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
+            $allowedEntityIds = $user->accessibleEntityIds();
+
+            abort_if($allowedEntityIds->isEmpty(), 403, 'Cliente sem entidade associada.');
             abort_if(
-                (int) $data['entity_id'] !== (int) $user->entity_id,
+                ! $allowedEntityIds->contains((int) $data['entity_id']),
                 403,
-                'Clientes so podem criar tickets na sua entidade.'
+                'Clientes so podem criar tickets nas suas entidades.'
             );
             abort_if(
                 ! empty($data['assigned_operator_id']),
@@ -316,8 +320,10 @@ class TicketController extends Controller
             return;
         }
 
-        abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
-        abort_if((int) $ticket->entity_id !== (int) $user->entity_id, 403, 'Sem permissao para este ticket.');
+        $allowedEntityIds = $user->accessibleEntityIds();
+
+        abort_if($allowedEntityIds->isEmpty(), 403, 'Cliente sem entidade associada.');
+        abort_if(! $allowedEntityIds->contains((int) $ticket->entity_id), 403, 'Sem permissao para este ticket.');
     }
 
     private function ensureInboxAccess(User $user, int $inboxId): void

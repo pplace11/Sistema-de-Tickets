@@ -171,6 +171,48 @@ class TicketEnhancementsTest extends TestCase
         $forced->assertJsonCount(0, 'data');
     }
 
+    public function test_client_can_access_tickets_from_multiple_linked_entities(): void
+    {
+        $ctx = $this->buildContext();
+
+        $client = User::factory()->create([
+            'role' => 'client',
+            'entity_id' => $ctx['entityA']->id,
+        ]);
+        $client->entities()->sync([$ctx['entityA']->id, $ctx['entityB']->id]);
+
+        Ticket::create([
+            'ticket_number' => 'TC-030',
+            'subject' => 'Ticket da entidade A',
+            'inbox_id' => $ctx['inboxA']->id,
+            'ticket_type_id' => $ctx['typeIncident']->id,
+            'ticket_status_id' => $ctx['statusOpen']->id,
+            'assigned_operator_id' => null,
+            'entity_id' => $ctx['entityA']->id,
+            'creator_contact_id' => $ctx['contactA']->id,
+            'creator_user_id' => null,
+            'message' => 'A',
+        ]);
+
+        Ticket::create([
+            'ticket_number' => 'TC-031',
+            'subject' => 'Ticket da entidade B',
+            'inbox_id' => $ctx['inboxA']->id,
+            'ticket_type_id' => $ctx['typeIncident']->id,
+            'ticket_status_id' => $ctx['statusOpen']->id,
+            'assigned_operator_id' => null,
+            'entity_id' => $ctx['entityB']->id,
+            'creator_contact_id' => null,
+            'creator_user_id' => null,
+            'message' => 'B',
+        ]);
+
+        $response = $this->actingAs($client)->getJson('/api/tickets');
+
+        $response->assertOk();
+        $response->assertJsonCount(2, 'data');
+    }
+
     public function test_lookups_returns_allowed_operators_for_operator_and_empty_for_client(): void
     {
         $ctx = $this->buildContext();
@@ -242,6 +284,45 @@ class TicketEnhancementsTest extends TestCase
         );
     }
 
+    public function test_ticket_created_notification_can_use_inbox_specific_template(): void
+    {
+        Notification::fake();
+
+        config()->set('tickets.notifications.by_inbox.comercial.created', [
+            'subject' => 'Comercial {{ticket_number}}',
+            'greeting' => 'Canal comercial',
+            'lines' => [
+                'Assunto {{subject}}',
+            ],
+        ]);
+
+        $ctx = $this->buildContext();
+
+        $this->actingAs($ctx['operatorA'])
+            ->postJson('/api/tickets', [
+                'subject' => 'Template inbox',
+                'inbox_id' => $ctx['inboxA']->id,
+                'ticket_type_id' => $ctx['typeIncident']->id,
+                'ticket_status_id' => $ctx['statusOpen']->id,
+                'entity_id' => $ctx['entityA']->id,
+                'creator_contact_id' => $ctx['contactA']->id,
+                'message' => 'Mensagem',
+                'cc' => ['destino@example.test'],
+            ])
+            ->assertCreated();
+
+        Notification::assertSentOnDemand(
+            TicketCreatedNotification::class,
+            function (TicketCreatedNotification $notification): bool {
+                $mail = $notification->toMail((object) []);
+
+                return $mail->subject === 'Comercial TC-001'
+                    && $mail->greeting === 'Canal comercial'
+                    && in_array('Assunto Template inbox', $mail->introLines, true);
+            }
+        );
+    }
+
     public function test_ticket_reply_notification_uses_configurable_template(): void
     {
         Notification::fake();
@@ -285,6 +366,44 @@ class TicketEnhancementsTest extends TestCase
                     && $mail->greeting === 'Ola Ticket de resposta'
                     && in_array('Linha TC-001', $mail->introLines, true)
                     && in_array('Texto Nova resposta', $mail->introLines, true);
+            }
+        );
+    }
+
+    public function test_ticket_reply_notification_is_sent_to_entity_email_when_no_direct_recipients(): void
+    {
+        Notification::fake();
+
+        $ctx = $this->buildContext();
+        $ctx['entityA']->update(['email' => 'entidade-a@example.test']);
+
+        $ticket = Ticket::create([
+            'ticket_number' => 'TC-001',
+            'subject' => 'Ticket sem destinatarios diretos',
+            'inbox_id' => $ctx['inboxA']->id,
+            'ticket_type_id' => $ctx['typeIncident']->id,
+            'ticket_status_id' => $ctx['statusOpen']->id,
+            'assigned_operator_id' => null,
+            'entity_id' => $ctx['entityA']->id,
+            'creator_contact_id' => null,
+            'creator_user_id' => null,
+            'message' => 'Mensagem inicial',
+        ]);
+
+        $this->actingAs($ctx['operatorA'])
+            ->postJson('/api/tickets/'.$ticket->id.'/replies', [
+                'message' => 'Resposta para testar email da entidade',
+            ])
+            ->assertCreated();
+
+        Notification::assertSentOnDemand(
+            TicketReplyNotification::class,
+            function (TicketReplyNotification $notification, array $channels, object $notifiable): bool {
+                $route = $notifiable->routes['mail'] ?? [];
+                $emails = is_array($route) ? $route : [$route];
+
+                return in_array('mail', $channels, true)
+                    && in_array('entidade-a@example.test', $emails, true);
             }
         );
     }

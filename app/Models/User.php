@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 use Laravel\Sanctum\HasApiTokens;
 
 #[Fillable(['name', 'email', 'password', 'role', 'entity_id', 'is_active'])]
@@ -45,6 +46,11 @@ class User extends Authenticatable
         return $this->belongsToMany(Inbox::class)->withTimestamps();
     }
 
+    public function entities(): BelongsToMany
+    {
+        return $this->belongsToMany(Entity::class)->withTimestamps();
+    }
+
     public function assignedTickets(): HasMany
     {
         return $this->hasMany(Ticket::class, 'assigned_operator_id');
@@ -53,5 +59,19 @@ class User extends Authenticatable
     public function isOperator(): bool
     {
         return $this->role === 'operator';
+    }
+
+    /**
+     * @return Collection<int, int>
+     */
+    public function accessibleEntityIds(): Collection
+    {
+        $entityIds = $this->entities()->pluck('entities.id');
+
+        if ($this->entity_id) {
+            $entityIds->push((int) $this->entity_id);
+        }
+
+        return $entityIds->map(fn ($id) => (int) $id)->unique()->values();
     }
 }

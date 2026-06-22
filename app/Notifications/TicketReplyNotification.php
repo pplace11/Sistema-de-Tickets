@@ -26,7 +26,7 @@ class TicketReplyNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $template = config('tickets.notifications.reply');
+        $template = TicketNotificationTemplate::resolveForTicket('reply', $this->ticket);
 
         $replacements = [
             'ticket_number' => $this->ticket->ticket_number,

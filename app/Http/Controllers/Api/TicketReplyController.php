@@ -79,7 +79,7 @@ class TicketReplyController extends Controller
 
     private function notifyReply(Ticket $ticket, TicketReply $reply): void
     {
-        $ticket->loadMissing(['cc', 'creatorContact', 'creatorUser', 'assignedOperator']);
+        $ticket->loadMissing(['cc', 'creatorContact', 'creatorUser', 'assignedOperator', 'entity.contacts']);
 
         $emails = collect($ticket->cc->pluck('email'));
 
@@ -94,6 +94,13 @@ class TicketReplyController extends Controller
         if ($ticket->assignedOperator?->email) {
             $emails->push($ticket->assignedOperator->email);
         }
+
+        if ($ticket->entity?->email) {
+            $emails->push($ticket->entity->email);
+        }
+
+        $entityContactEmails = $ticket->entity?->contacts?->pluck('email') ?? collect();
+        $emails = $emails->merge($entityContactEmails);
 
         $emails = $emails->filter()->unique()->values();
 
@@ -112,8 +119,10 @@ class TicketReplyController extends Controller
             return;
         }
 
-        abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
-        abort_if((int) $ticket->entity_id !== (int) $user->entity_id, 403, 'Sem permissao para este ticket.');
+        $allowedEntityIds = $user->accessibleEntityIds();
+
+        abort_if($allowedEntityIds->isEmpty(), 403, 'Cliente sem entidade associada.');
+        abort_if(! $allowedEntityIds->contains((int) $ticket->entity_id), 403, 'Sem permissao para este ticket.');
     }
 
     private function ensureContactBelongsToEntity(int $contactId, int $entityId): void

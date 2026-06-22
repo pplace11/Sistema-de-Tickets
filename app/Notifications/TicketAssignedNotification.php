@@ -23,7 +23,7 @@ class TicketAssignedNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $template = config('tickets.notifications.assigned');
+        $template = TicketNotificationTemplate::resolveForTicket('assigned', $this->ticket);
 
         $replacements = [
             'ticket_number' => $this->ticket->ticket_number,

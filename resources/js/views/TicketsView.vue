@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../services/api';
 import { useAuthStore } from '../stores/auth';
 
@@ -7,6 +7,7 @@ const loading = ref(true);
 const submitting = ref(false);
 const tickets = ref([]);
 const entities = ref([]);
+const contacts = ref([]);
 const lookups = ref({ inboxes: [], ticketTypes: [], ticketStatuses: [], operators: [] });
 const ticketAttachments = ref([]);
 const ticketFilesInputKey = ref(0);
@@ -35,8 +36,21 @@ const form = ref({
     ticket_type_id: '',
     ticket_status_id: '',
     entity_id: '',
+    creator_contact_id: '',
     message: '',
     cc: '',
+});
+
+const availableCreatorContacts = computed(() => {
+    const selectedEntityId = Number(form.value.entity_id || userEntityId.value || 0);
+
+    if (!selectedEntityId) {
+        return contacts.value;
+    }
+
+    return contacts.value.filter((contact) =>
+        (contact.entities || []).some((entity) => Number(entity.id) === selectedEntityId)
+    );
 });
 
 const editorActions = [
@@ -116,13 +130,15 @@ const load = async () => {
             api.get('/tickets', { params: filters.value }),
             api.get('/lookups'),
             api.get('/entities'),
+            api.get('/contacts'),
         ];
 
-        const [ticketsResponse, lookupsResponse, entitiesResponse] = await Promise.all(requests);
+        const [ticketsResponse, lookupsResponse, entitiesResponse, contactsResponse] = await Promise.all(requests);
 
         tickets.value = ticketsResponse.data.data;
         lookups.value = lookupsResponse.data;
         entities.value = entitiesResponse?.data?.data ?? [];
+        contacts.value = contactsResponse?.data?.data ?? [];
 
         if (!form.value.ticket_status_id && lookups.value.ticketStatuses.length > 0) {
             form.value.ticket_status_id = lookups.value.ticketStatuses[0].id;
@@ -134,6 +150,10 @@ const load = async () => {
 
         if (!form.value.entity_id && entities.value.length > 0) {
             form.value.entity_id = userEntityId.value || entities.value[0].id;
+        }
+
+        if (!form.value.creator_contact_id && availableCreatorContacts.value.length > 0) {
+            form.value.creator_contact_id = availableCreatorContacts.value[0].id;
         }
     } finally {
         loading.value = false;
@@ -151,6 +171,11 @@ const createTicket = async () => {
         payload.append('ticket_type_id', String(form.value.ticket_type_id || lookups.value.ticketTypes[0]?.id || ''));
         payload.append('ticket_status_id', String(form.value.ticket_status_id || lookups.value.ticketStatuses[0]?.id || ''));
         payload.append('entity_id', String(form.value.entity_id || userEntityId.value || entities.value[0]?.id || ''));
+
+        if (form.value.creator_contact_id) {
+            payload.append('creator_contact_id', String(form.value.creator_contact_id));
+        }
+
         payload.append('message', form.value.message);
 
         const ccList = form.value.cc
@@ -176,7 +201,8 @@ const createTicket = async () => {
             inbox_id: '',
             ticket_type_id: '',
             ticket_status_id: lookups.value.ticketStatuses[0]?.id || '',
-            entity_id: entities.value[0]?.id || '',
+            entity_id: userEntityId.value || entities.value[0]?.id || '',
+            creator_contact_id: '',
             message: '',
             cc: '',
         };
@@ -192,6 +218,27 @@ const createTicket = async () => {
         submitting.value = false;
     }
 };
+
+watch(
+    () => form.value.entity_id,
+    () => {
+        if (!form.value.creator_contact_id) {
+            if (availableCreatorContacts.value.length > 0) {
+                form.value.creator_contact_id = availableCreatorContacts.value[0].id;
+            }
+
+            return;
+        }
+
+        const isCurrentSelectionStillValid = availableCreatorContacts.value.some(
+            (contact) => Number(contact.id) === Number(form.value.creator_contact_id)
+        );
+
+        if (!isCurrentSelectionStillValid) {
+            form.value.creator_contact_id = availableCreatorContacts.value[0]?.id || '';
+        }
+    }
+);
 
 onMounted(load);
 </script>
@@ -268,6 +315,16 @@ onMounted(load);
                 <select v-if="isOperator" v-model="form.entity_id">
                     <option disabled value="">Entidade</option>
                     <option v-for="entity in entities" :key="entity.id" :value="entity.id">{{ entity.name }}</option>
+                </select>
+                <select v-model="form.creator_contact_id">
+                    <option value="">Contacto criador (opcional)</option>
+                    <option
+                        v-for="contact in availableCreatorContacts"
+                        :key="contact.id"
+                        :value="contact.id"
+                    >
+                        {{ contact.name }}
+                    </option>
                 </select>
                 <input v-model="form.cc" placeholder="CC: email1@x.pt, email2@x.pt" />
                 <div class="editor-wrapper">

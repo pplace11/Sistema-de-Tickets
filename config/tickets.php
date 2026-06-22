@@ -30,5 +30,19 @@ return [
                 'Estado: {{status_name}}',
             ],
         ],
+        'by_inbox' => [
+            // Exemplo:
+            // 'comercial' => [
+            //     'created' => [
+            //         'subject' => 'Comercial: novo ticket {{ticket_number}}',
+            //         'greeting' => 'Ola equipa Comercial,',
+            //         'lines' => [
+            //             'Ticket recebido no departamento Comercial.',
+            //             'Numero: {{ticket_number}}',
+            //             'Assunto: {{subject}}',
+            //         ],
+            //     ],
+            // ],
+        ],
     ],
 ];

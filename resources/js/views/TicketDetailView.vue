@@ -2,19 +2,31 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
+import { useAuthStore } from '../stores/auth';
 
 const route = useRoute();
+const auth = useAuthStore();
 const loading = ref(true);
 const submitting = ref(false);
+const savingTicket = ref(false);
 const ticket = ref(null);
 const error = ref('');
 const replyForm = ref({ message: '' });
 const replyAttachments = ref([]);
 const replyFilesInputKey = ref(0);
+const lookups = ref({ inboxes: [], ticketTypes: [], ticketStatuses: [], operators: [] });
+const editForm = ref({
+    subject: '',
+    inbox_id: '',
+    ticket_type_id: '',
+    ticket_status_id: '',
+    assigned_operator_id: '',
+});
 const currentRepliesPage = ref(1);
 const repliesPerPage = 5;
 
 const ticketId = computed(() => route.params.id);
+const isOperator = computed(() => auth.user?.role === 'operator');
 const allReplies = computed(() => ticket.value?.replies ?? []);
 const totalReplies = computed(() => allReplies.value.length);
 const totalReplyPages = computed(() => Math.max(1, Math.ceil(totalReplies.value / repliesPerPage)));
@@ -96,13 +108,57 @@ const loadTicket = async () => {
     error.value = '';
 
     try {
-        const { data } = await api.get(`/tickets/${ticketId.value}`);
-        ticket.value = data;
+        const requests = [api.get(`/tickets/${ticketId.value}`)];
+
+        if (isOperator.value) {
+            requests.push(api.get('/lookups'));
+        }
+
+        const [ticketResponse, lookupsResponse] = await Promise.all(requests);
+
+        ticket.value = ticketResponse.data;
+
+        if (lookupsResponse) {
+            lookups.value = lookupsResponse.data;
+        }
+
+        editForm.value = {
+            subject: ticket.value.subject || '',
+            inbox_id: ticket.value.inbox_id || '',
+            ticket_type_id: ticket.value.ticket_type_id || '',
+            ticket_status_id: ticket.value.ticket_status_id || '',
+            assigned_operator_id: ticket.value.assigned_operator_id || '',
+        };
+
         currentRepliesPage.value = 1;
     } catch {
         error.value = 'Nao foi possivel carregar o ticket.';
     } finally {
         loading.value = false;
+    }
+};
+
+const saveTicketDetails = async () => {
+    if (!ticket.value || !isOperator.value) {
+        return;
+    }
+
+    savingTicket.value = true;
+
+    try {
+        await api.put(`/tickets/${ticketId.value}`, {
+            subject: editForm.value.subject,
+            inbox_id: editForm.value.inbox_id,
+            ticket_type_id: editForm.value.ticket_type_id,
+            ticket_status_id: editForm.value.ticket_status_id,
+            assigned_operator_id: editForm.value.assigned_operator_id || null,
+        });
+
+        await loadTicket();
+    } catch {
+        error.value = 'Nao foi possivel atualizar os dados do ticket.';
+    } finally {
+        savingTicket.value = false;
     }
 };
 
@@ -166,6 +222,37 @@ onMounted(loadTicket);
         <p v-else-if="error" class="state state-error">{{ error }}</p>
 
         <template v-else-if="ticket">
+            <section v-if="isOperator" class="box">
+                <div class="box-head">
+                    <h3>Gestao do ticket</h3>
+                    <span class="hint">Atualize estado, inbox e operador associado</span>
+                </div>
+
+                <div class="edit-grid">
+                    <input v-model="editForm.subject" placeholder="Assunto" />
+                    <select v-model="editForm.inbox_id">
+                        <option disabled value="">Inbox</option>
+                        <option v-for="inbox in lookups.inboxes" :key="inbox.id" :value="inbox.id">{{ inbox.name }}</option>
+                    </select>
+                    <select v-model="editForm.ticket_type_id">
+                        <option disabled value="">Tipo</option>
+                        <option v-for="type in lookups.ticketTypes" :key="type.id" :value="type.id">{{ type.name }}</option>
+                    </select>
+                    <select v-model="editForm.ticket_status_id">
+                        <option disabled value="">Estado</option>
+                        <option v-for="status in lookups.ticketStatuses" :key="status.id" :value="status.id">{{ status.name }}</option>
+                    </select>
+                    <select v-model="editForm.assigned_operator_id">
+                        <option value="">Sem operador</option>
+                        <option v-for="operator in lookups.operators" :key="operator.id" :value="operator.id">{{ operator.name }}</option>
+                    </select>
+
+                    <button class="btn btn-primary" :disabled="savingTicket" @click="saveTicketDetails">
+                        {{ savingTicket ? 'A guardar...' : 'Guardar alteracoes' }}
+                    </button>
+                </div>
+            </section>
+
             <section class="box summary">
                 <div class="main">
                     <p class="number">{{ ticket.ticket_number }}</p>
@@ -431,6 +518,16 @@ h3 {
     gap: 8px;
 }
 
+.edit-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.edit-grid .btn {
+    grid-column: 1 / -1;
+}
+
 .upload-row {
     display: grid;
     gap: 4px;
@@ -461,6 +558,21 @@ textarea {
     border-radius: 10px;
     border: 1px solid #cbd5e1;
     background: #fff;
+}
+
+input,
+select {
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+}
+
+input:focus,
+select:focus {
+    outline: none;
+    border-color: #7f9bc0;
+    box-shadow: 0 0 0 3px rgba(29, 53, 87, 0.12);
 }
 
 textarea:focus {
@@ -550,6 +662,10 @@ textarea:focus {
     }
 
     .summary {
+        grid-template-columns: 1fr;
+    }
+
+    .edit-grid {
         grid-template-columns: 1fr;
     }
 

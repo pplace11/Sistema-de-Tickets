@@ -19,8 +19,10 @@ class EntityController extends Controller
         $query = Entity::query()->with('contacts');
 
         if (! $user->isOperator()) {
-            abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
-            $query->where('id', (int) $user->entity_id);
+            $allowedEntityIds = $user->accessibleEntityIds();
+
+            abort_if($allowedEntityIds->isEmpty(), 403, 'Cliente sem entidade associada.');
+            $query->whereIn('id', $allowedEntityIds->all());
         }
 
         if ($request->filled('search')) {
@@ -94,7 +96,9 @@ class EntityController extends Controller
             return;
         }
 
-        abort_if(! $user->entity_id, 403, 'Cliente sem entidade associada.');
-        abort_if((int) $entity->id !== (int) $user->entity_id, 403, 'Sem permissao para esta entidade.');
+        $allowedEntityIds = $user->accessibleEntityIds();
+
+        abort_if($allowedEntityIds->isEmpty(), 403, 'Cliente sem entidade associada.');
+        abort_if(! $allowedEntityIds->contains((int) $entity->id), 403, 'Sem permissao para esta entidade.');
     }
 }

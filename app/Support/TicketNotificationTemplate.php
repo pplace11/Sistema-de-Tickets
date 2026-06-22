@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Models\Ticket;
+
 class TicketNotificationTemplate
 {
     /**
@@ -14,5 +16,26 @@ class TicketNotificationTemplate
         }
 
         return $template;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function resolveForTicket(string $notificationKey, Ticket $ticket): array
+    {
+        $ticket->loadMissing('inbox');
+
+        $inboxSlug = (string) ($ticket->inbox?->slug ?? '');
+        $inboxTemplate = $inboxSlug !== ''
+            ? config('tickets.notifications.by_inbox.'.$inboxSlug.'.'.$notificationKey)
+            : null;
+
+        if (is_array($inboxTemplate)) {
+            return $inboxTemplate;
+        }
+
+        $defaultTemplate = config('tickets.notifications.'.$notificationKey, []);
+
+        return is_array($defaultTemplate) ? $defaultTemplate : [];
     }
 }

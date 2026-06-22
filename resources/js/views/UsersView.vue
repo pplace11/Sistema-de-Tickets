@@ -13,12 +13,16 @@ const users = ref([]);
 const entities = ref([]);
 const inboxes = ref([]);
 const search = ref('');
+const roleFilter = ref('all');
+const syncingEntitiesUserId = ref(null);
+const entitySelections = ref({});
 
 const form = ref({
     name: '',
     email: '',
     password: '',
-    entity_id: '',
+    role: 'operator',
+    entity_ids: [],
     inbox_ids: [],
     is_active: true,
 });
@@ -28,7 +32,8 @@ const resetForm = () => {
         name: '',
         email: '',
         password: '',
-        entity_id: '',
+        role: 'operator',
+        entity_ids: [],
         inbox_ids: [],
         is_active: true,
     };
@@ -41,13 +46,45 @@ const formatInboxes = (user) => {
     return names.length ? names.join(', ') : 'Sem inboxes';
 };
 
+const formatEntities = (user) => {
+    const names = (user?.entities || []).map((entity) => entity.name).filter(Boolean);
+
+    if (names.length) {
+        return names.join(', ');
+    }
+
+    return user?.entity?.name || 'Sem entidades';
+};
+
+const selectedRoleLabel = computed(() => (form.value.role === 'operator' ? 'Operador' : 'Cliente'));
+
+const canEditEntities = (user) => user.role === 'client';
+
+const ensureEntitySelection = (user) => {
+    if (!user) {
+        return;
+    }
+
+    const key = String(user.id);
+
+    if (!entitySelections.value[key]) {
+        const ids = (user.entities || []).map((entity) => entity.id);
+        entitySelections.value[key] = ids.length ? ids : (user.entity_id ? [user.entity_id] : []);
+    }
+};
+
 const load = async () => {
     loading.value = true;
     error.value = '';
 
     try {
         const [usersResponse, entitiesResponse, lookupsResponse] = await Promise.all([
-            api.get('/users', { params: { search: search.value || undefined, role: 'operator' } }),
+            api.get('/users', {
+                params: {
+                    search: search.value || undefined,
+                    role: roleFilter.value === 'all' ? undefined : roleFilter.value,
+                },
+            }),
             api.get('/entities'),
             api.get('/lookups'),
         ]);
@@ -55,6 +92,12 @@ const load = async () => {
         users.value = usersResponse.data.data || [];
         entities.value = entitiesResponse.data.data || [];
         inboxes.value = lookupsResponse.data.inboxes || [];
+
+        entitySelections.value = {};
+
+        for (const user of users.value) {
+            ensureEntitySelection(user);
+        }
     } catch {
         error.value = 'Nao foi possivel carregar os utilizadores.';
     } finally {
@@ -69,8 +112,10 @@ const createUser = async () => {
     try {
         await api.post('/users', {
             ...form.value,
-            entity_id: form.value.entity_id || null,
-            inbox_ids: form.value.inbox_ids,
+            role: form.value.role,
+            entity_ids: form.value.entity_ids,
+            entity_id: form.value.entity_ids[0] || null,
+            inbox_ids: form.value.role === 'operator' ? form.value.inbox_ids : [],
             is_active: Boolean(form.value.is_active),
         });
 
@@ -83,6 +128,40 @@ const createUser = async () => {
     }
 };
 
+const syncUserEntities = async (user) => {
+    if (!canEditEntities(user)) {
+        return;
+    }
+
+    const selected = entitySelections.value[String(user.id)] || [];
+
+    if (!selected.length) {
+        error.value = 'Selecione pelo menos uma entidade para o cliente.';
+        return;
+    }
+
+    syncingEntitiesUserId.value = user.id;
+    error.value = '';
+
+    try {
+        await api.put(`/users/${user.id}/entities`, {
+            entity_ids: selected,
+        });
+
+        await load();
+    } catch {
+        error.value = 'Nao foi possivel atualizar as entidades do cliente.';
+    } finally {
+        syncingEntitiesUserId.value = null;
+    }
+};
+
+const clearFilters = async () => {
+    search.value = '';
+    roleFilter.value = 'all';
+    await load();
+};
+
 onMounted(load);
 </script>
 
@@ -92,7 +171,7 @@ onMounted(load);
             <div>
                 <p class="eyebrow">Administracao</p>
                 <h2>Gestao de utilizadores</h2>
-                <p class="subtitle">Crie operadores por entidade com regras de acesso por inbox.</p>
+                <p class="subtitle">Crie operadores e clientes, e configure entidades dos clientes.</p>
             </div>
             <button class="btn btn-dark" :disabled="loading" @click="load">
                 {{ loading ? 'A atualizar...' : 'Atualizar lista' }}
@@ -105,19 +184,25 @@ onMounted(load);
             <section class="box">
                 <div class="box-head">
                     <h3>Pesquisa</h3>
-                    <span class="hint">Nome ou email</span>
+                    <span class="hint">Nome, email e perfil</span>
                 </div>
 
                 <div class="toolbar">
                     <input v-model="search" placeholder="Pesquisar por nome ou email" @keyup.enter="load">
+                    <select v-model="roleFilter" @change="load">
+                        <option value="all">Todos os perfis</option>
+                        <option value="operator">Operadores</option>
+                        <option value="client">Clientes</option>
+                    </select>
                     <button class="btn btn-teal" @click="load">Pesquisar</button>
+                    <button class="btn btn-light" @click="clearFilters">Limpar filtros</button>
                 </div>
             </section>
 
             <section class="box">
                 <div class="box-head">
                     <h3>Novo utilizador</h3>
-                    <span class="hint">Crie um operador e associe entidade e inboxes</span>
+                    <span class="hint">Perfil selecionado: {{ selectedRoleLabel }}</span>
                 </div>
 
                 <div class="grid">
@@ -125,12 +210,16 @@ onMounted(load);
                     <input v-model="form.email" placeholder="Email">
                     <input v-model="form.password" type="password" placeholder="Password inicial (min. 8)">
 
-                    <select v-model="form.entity_id">
-                        <option value="">Entidade do operador</option>
+                    <select v-model="form.role">
+                        <option value="operator">Operador</option>
+                        <option value="client">Cliente</option>
+                    </select>
+
+                    <select v-model="form.entity_ids" multiple>
                         <option v-for="entity in entities" :key="entity.id" :value="entity.id">{{ entity.name }}</option>
                     </select>
 
-                    <select v-model="form.inbox_ids" multiple>
+                    <select v-if="form.role === 'operator'" v-model="form.inbox_ids" multiple>
                         <option v-for="inbox in inboxes" :key="inbox.id" :value="inbox.id">{{ inbox.name }}</option>
                     </select>
 
@@ -160,12 +249,26 @@ onMounted(load);
                         <div class="primary">
                             <strong>{{ user.name }}</strong>
                             <span>{{ user.email }}</span>
-                            <small>Entidade: {{ user.entity?.name || 'Sem entidade' }}</small>
+                            <small>Entidades: {{ formatEntities(user) }}</small>
                             <small>Inboxes: {{ formatInboxes(user) }}</small>
+
+                            <div v-if="canEditEntities(user)" class="entity-editor">
+                                <label>Entidades do cliente</label>
+                                <select v-model="entitySelections[String(user.id)]" multiple>
+                                    <option v-for="entity in entities" :key="entity.id" :value="entity.id">{{ entity.name }}</option>
+                                </select>
+                                <button
+                                    class="btn btn-teal btn-small"
+                                    :disabled="syncingEntitiesUserId === user.id"
+                                    @click="syncUserEntities(user)"
+                                >
+                                    {{ syncingEntitiesUserId === user.id ? 'A guardar...' : 'Guardar entidades' }}
+                                </button>
+                            </div>
                         </div>
 
                         <div class="secondary">
-                            <span class="role-badge" :class="roleBadgeClass(user.role)">OPERADOR</span>
+                            <span class="role-badge" :class="roleBadgeClass(user.role)">{{ user.role === 'operator' ? 'OPERADOR' : 'CLIENTE' }}</span>
                             <span class="active" :class="{ off: !user.is_active }">{{ user.is_active ? 'Ativo' : 'Inativo' }}</span>
                         </div>
                     </li>
@@ -302,6 +405,17 @@ h2 {
     color: #fff;
 }
 
+.btn-light {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+
+.btn-small {
+    width: fit-content;
+    padding: 7px 10px;
+    font-size: 0.8rem;
+}
+
 .list {
     list-style: none;
     padding: 0;
@@ -337,6 +451,19 @@ h2 {
 
 .primary small {
     color: #64748b;
+}
+
+.entity-editor {
+    margin-top: 8px;
+    display: grid;
+    gap: 6px;
+    max-width: 360px;
+}
+
+.entity-editor label {
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 600;
 }
 
 .secondary {

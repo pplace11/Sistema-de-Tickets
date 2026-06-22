@@ -23,7 +23,7 @@ class TicketCreatedNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $template = config('tickets.notifications.created');
+        $template = TicketNotificationTemplate::resolveForTicket('created', $this->ticket);
 
         $replacements = [
             'ticket_number' => $this->ticket->ticket_number,
